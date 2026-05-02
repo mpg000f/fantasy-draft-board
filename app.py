@@ -53,6 +53,46 @@ def _handle_yahoo_callback():
 _handle_yahoo_callback()
 
 
+def _apply_import(scoring: dict, roster: dict, name: str):
+    """Update session state AND widget keys so the sidebar reflects imported values."""
+    st.session_state.scoring = scoring
+    st.session_state.roster = {**roster, "budget": st.session_state.roster["budget"]}
+    st.session_state.preset = "Custom"
+    st.session_state.import_status = ("success", f"Loaded: **{name}**")
+
+    # Sync scoring widget keys
+    st.session_state["pass_yds"]  = float(scoring["pass_yds_per_pt"])
+    st.session_state["pass_td"]   = float(scoring["pass_td"])
+    st.session_state["pass_int"]  = float(scoring["pass_int"])
+    st.session_state["pass_300"]  = float(scoring["pass_300_bonus"])
+    st.session_state["rush_yds"]  = float(scoring["rush_yds_per_pt"])
+    st.session_state["rush_td"]   = float(scoring["rush_td"])
+    st.session_state["rush_100"]  = float(scoring["rush_100_bonus"])
+    st.session_state["rec_ppr"]   = float(scoring["rec_ppr"])
+    st.session_state["te_toggle"] = scoring["te_rec_bonus"] > 0
+    st.session_state["te_bonus"]  = float(scoring["te_rec_bonus"]) if scoring["te_rec_bonus"] > 0 else 0.25
+    st.session_state["rec_yds"]   = float(scoring["rec_yds_per_pt"])
+    st.session_state["rec_td"]    = float(scoring["rec_td"])
+    st.session_state["rec_100"]   = float(scoring["rec_100_bonus"])
+    st.session_state["fum"]       = float(scoring["fumble_lost"])
+    st.session_state["pass_2pt"]  = float(scoring["pass_2pt"])
+    st.session_state["rush_2pt"]  = float(scoring["rush_2pt"])
+    st.session_state["rec_2pt"]   = float(scoring["rec_2pt"])
+
+    # Sync roster widget keys
+    st.session_state["num_teams"] = int(roster["num_teams"])
+    st.session_state["r_qb"]      = int(roster["qb"])
+    st.session_state["r_rb"]      = int(roster["rb"])
+    st.session_state["r_wr"]      = int(roster["wr"])
+    st.session_state["r_te"]      = int(roster["te"])
+    st.session_state["r_flex"]    = int(roster["flex"])
+    st.session_state["r_k"]       = int(roster["k"])
+    st.session_state["r_dst"]     = int(roster["dst"])
+    st.session_state["r_bench"]   = int(roster["bench"])
+
+    st.rerun()
+
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 
 with st.sidebar:
@@ -79,13 +119,7 @@ with st.sidebar:
             with st.spinner("Fetching league settings..."):
                 try:
                     lid = league_id.strip()
-                    scoring = sleeper.import_league(lid)
-                    roster = sleeper.import_roster(lid)
-                    name = sleeper.get_league_name(lid)
-                    st.session_state.scoring = scoring
-                    st.session_state.roster = {**roster, "budget": st.session_state.roster["budget"]}
-                    st.session_state.preset = "Custom"
-                    st.session_state.import_status = ("success", f"Loaded: **{name}**")
+                    _apply_import(sleeper.import_league(lid), sleeper.import_roster(lid), sleeper.get_league_name(lid))
                 except Exception as e:
                     st.session_state.import_status = ("error", str(e))
 
@@ -102,13 +136,7 @@ with st.sidebar:
                 try:
                     lid, yr = league_id.strip(), int(year)
                     kw = dict(espn_s2=espn_s2.strip(), swid=swid.strip())
-                    scoring = espn.import_league(lid, yr, **kw)
-                    roster = espn.import_roster(lid, yr, **kw)
-                    name = espn.get_league_name(lid, yr, **kw)
-                    st.session_state.scoring = scoring
-                    st.session_state.roster = {**roster, "budget": st.session_state.roster["budget"]}
-                    st.session_state.preset = "Custom"
-                    st.session_state.import_status = ("success", f"Loaded: **{name}**")
+                    _apply_import(espn.import_league(lid, yr, **kw), espn.import_roster(lid, yr, **kw), espn.get_league_name(lid, yr, **kw))
                 except Exception as e:
                     st.session_state.import_status = ("error", str(e))
 
@@ -129,13 +157,7 @@ with st.sidebar:
                 with st.spinner("Fetching league settings..."):
                     try:
                         lid, tok = league_id.strip(), st.session_state.yahoo_token
-                        scoring = yahoo.import_league(lid, tok)
-                        roster = yahoo.import_roster(lid, tok)
-                        name = yahoo.get_league_name(lid, tok)
-                        st.session_state.scoring = scoring
-                        st.session_state.roster = {**roster, "budget": st.session_state.roster["budget"]}
-                        st.session_state.preset = "Custom"
-                        st.session_state.import_status = ("success", f"Loaded: **{name}**")
+                        _apply_import(yahoo.import_league(lid, tok), yahoo.import_roster(lid, tok), yahoo.get_league_name(lid, tok))
                     except Exception as e:
                         st.session_state.import_status = ("error", str(e))
             if st.button("Disconnect Yahoo"):
