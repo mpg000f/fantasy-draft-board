@@ -5,7 +5,8 @@ from auction import DEFAULT_ROSTER
 # Sleeper position label → roster key
 _POS_MAP = {
     "QB": "qb", "RB": "rb", "WR": "wr", "TE": "te",
-    "FLEX": "flex", "WRRB_FLEX": "flex", "REC_FLEX": "flex", "SUPER_FLEX": "flex",
+    "FLEX": "flex", "WRRB_FLEX": "flex", "REC_FLEX": "flex",
+    "SUPER_FLEX": "superflex",
     "K": "k", "DEF": "dst", "BN": "bench", "IR": None, "IL": None,
 }
 
@@ -71,7 +72,7 @@ def import_roster(league_id: str) -> dict:
         if key:
             counts[key] = counts.get(key, 0) + 1
 
-    for k in ["qb", "rb", "wr", "te", "flex", "k", "dst", "bench"]:
+    for k in ["qb", "rb", "wr", "te", "flex", "superflex", "k", "dst", "bench"]:
         if k in counts:
             roster[k] = counts[k]
 

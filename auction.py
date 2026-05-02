@@ -7,7 +7,8 @@ DEFAULT_ROSTER = {
     "rb": 2,
     "wr": 2,
     "te": 1,
-    "flex": 1,   # RB/WR/TE eligible
+    "flex": 1,       # RB/WR/TE eligible
+    "superflex": 0,  # QB/RB/WR/TE eligible
     "k": 1,
     "dst": 1,
     "bench": 6,
@@ -19,12 +20,15 @@ def calculate_auction_values(df: pd.DataFrame, roster: dict) -> pd.DataFrame:
     df = df.copy()
     n = roster["num_teams"]
     budget = roster["budget"]
+    sf = roster.get("superflex", 0)
 
-    qb_slots   = roster["qb"]   * n
-    flex_slots  = (roster["rb"] + roster["wr"] + roster["te"] + roster["flex"]) * n
-    k_slots    = roster["k"]    * n
-    dst_slots  = roster["dst"]  * n
-    total_per_team = sum(roster[k] for k in ["qb","rb","wr","te","flex","k","dst","bench"])
+    # QBs fill QB slots first, then spill into superflex spots
+    qb_slots   = (roster["qb"] + sf) * n
+    # RB/WR/TE compete for flex slots only (superflex QBs take those spots in practice)
+    flex_slots = (roster["rb"] + roster["wr"] + roster["te"] + roster["flex"]) * n
+    k_slots    = roster["k"]   * n
+    dst_slots  = roster["dst"] * n
+    total_per_team = sum(roster.get(k, 0) for k in ["qb","rb","wr","te","flex","superflex","k","dst","bench"])
 
     # Spendable dollars after reserving $1 minimum per roster spot
     spendable = (budget - total_per_team) * n

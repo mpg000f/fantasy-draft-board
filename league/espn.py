@@ -5,7 +5,8 @@ from auction import DEFAULT_ROSTER
 # ESPN lineup slot ID → roster key
 _ESPN_SLOT_MAP = {
     0: "qb", 2: "rb", 4: "wr", 6: "te",
-    23: "flex", 16: "k", 24: "dst", 20: "bench",
+    23: "flex", 7: "superflex",
+    16: "k", 24: "dst", 20: "bench",
 }
 
 _BASE = "https://fantasy.espn.com/apis/v3/games/ffl"

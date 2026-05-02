@@ -6,7 +6,8 @@ from auction import DEFAULT_ROSTER
 # Yahoo position abbreviation → roster key
 _YAHOO_POS_MAP = {
     "QB": "qb", "RB": "rb", "WR": "wr", "TE": "te",
-    "W/R/T": "flex", "W/T": "flex", "W/R": "flex", "Q/W/R/T": "flex",
+    "W/R/T": "flex", "W/T": "flex", "W/R": "flex",
+    "Q/W/R/T": "superflex",
     "K": "k", "DEF": "dst", "BN": "bench", "IR": None,
 }
 
@@ -123,7 +124,7 @@ def import_roster(league_id: str, access_token: str) -> dict:
         if key:
             counts[key] = counts.get(key, 0) + count
 
-    for k in ["qb", "rb", "wr", "te", "flex", "k", "dst", "bench"]:
+    for k in ["qb", "rb", "wr", "te", "flex", "superflex", "k", "dst", "bench"]:
         if k in counts:
             roster[k] = counts[k]
 

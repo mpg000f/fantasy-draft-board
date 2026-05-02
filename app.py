@@ -85,8 +85,9 @@ def _apply_import(scoring: dict, roster: dict, name: str):
     st.session_state["r_rb"]      = int(roster["rb"])
     st.session_state["r_wr"]      = int(roster["wr"])
     st.session_state["r_te"]      = int(roster["te"])
-    st.session_state["r_flex"]    = int(roster["flex"])
-    st.session_state["r_k"]       = int(roster["k"])
+    st.session_state["r_flex"]      = int(roster["flex"])
+    st.session_state["r_superflex"] = int(roster.get("superflex", 0))
+    st.session_state["r_k"]         = int(roster["k"])
     st.session_state["r_dst"]     = int(roster["dst"])
     st.session_state["r_bench"]   = int(roster["bench"])
 
@@ -248,8 +249,8 @@ with st.sidebar:
         r["rb"]    = st.number_input("RB",    value=int(r["rb"]),    min_value=0, step=1, key="r_rb")
         r["wr"]    = st.number_input("WR",    value=int(r["wr"]),    min_value=0, step=1, key="r_wr")
         r["te"]    = st.number_input("TE",    value=int(r["te"]),    min_value=0, step=1, key="r_te")
-        r["flex"]  = st.number_input("FLEX",  value=int(r["flex"]),  min_value=0, step=1, key="r_flex",
-            help="RB/WR/TE eligible")
+        r["flex"]      = st.number_input("FLEX",      value=int(r.get("flex", 1)),      min_value=0, step=1, key="r_flex",      help="RB/WR/TE eligible")
+        r["superflex"] = st.number_input("Superflex", value=int(r.get("superflex", 0)), min_value=0, step=1, key="r_superflex", help="QB/RB/WR/TE eligible")
         r["k"]     = st.number_input("K",     value=int(r["k"]),     min_value=0, step=1, key="r_k")
         r["dst"]   = st.number_input("DST",   value=int(r["dst"]),   min_value=0, step=1, key="r_dst")
         r["bench"] = st.number_input("Bench", value=int(r["bench"]), min_value=0, step=1, key="r_bench")
