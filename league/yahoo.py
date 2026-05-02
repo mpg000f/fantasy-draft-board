@@ -1,6 +1,14 @@
 import requests
 from urllib.parse import urlencode
 from scoring import DEFAULT_SCORING
+from auction import DEFAULT_ROSTER
+
+# Yahoo position abbreviation → roster key
+_YAHOO_POS_MAP = {
+    "QB": "qb", "RB": "rb", "WR": "wr", "TE": "te",
+    "W/R/T": "flex", "W/T": "flex", "W/R": "flex", "Q/W/R/T": "flex",
+    "K": "k", "DEF": "dst", "BN": "bench", "IR": None,
+}
 
 _AUTH_URL = "https://api.login.yahoo.com/oauth2/request_auth"
 _TOKEN_URL = "https://api.login.yahoo.com/oauth2/get_token"
@@ -85,6 +93,41 @@ def import_league(league_id: str, access_token: str) -> dict:
                 pass
 
     return scoring
+
+
+def import_roster(league_id: str, access_token: str) -> dict:
+    """Fetch roster slot counts and team count from a Yahoo league."""
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    url = f"{_API_BASE}/league/nfl.l.{league_id}/settings"
+    r = requests.get(url, params={"format": "json"}, headers=headers, timeout=15)
+    if r.status_code == 401:
+        raise ValueError("Yahoo session expired — please reconnect.")
+    r.raise_for_status()
+
+    data = r.json()
+    try:
+        league_data = data["fantasy_content"]["league"]
+        num_teams = int(league_data[0].get("num_teams", 12))
+        roster_positions = league_data[1]["settings"]["roster_positions"]["roster_position"]
+    except (KeyError, IndexError, TypeError):
+        return DEFAULT_ROSTER.copy()
+
+    roster = DEFAULT_ROSTER.copy()
+    roster["num_teams"] = num_teams
+
+    counts = {}
+    for slot in roster_positions:
+        abbr = slot.get("abbreviation", "")
+        count = int(slot.get("count", 1))
+        key = _YAHOO_POS_MAP.get(abbr)
+        if key:
+            counts[key] = counts.get(key, 0) + count
+
+    for k in ["qb", "rb", "wr", "te", "flex", "k", "dst", "bench"]:
+        if k in counts:
+            roster[k] = counts[k]
+
+    return roster
 
 
 def get_league_name(league_id: str, access_token: str) -> str:

@@ -1,5 +1,13 @@
 import requests
 from scoring import DEFAULT_SCORING
+from auction import DEFAULT_ROSTER
+
+# Sleeper position label → roster key
+_POS_MAP = {
+    "QB": "qb", "RB": "rb", "WR": "wr", "TE": "te",
+    "FLEX": "flex", "WRRB_FLEX": "flex", "REC_FLEX": "flex", "SUPER_FLEX": "flex",
+    "K": "k", "DEF": "dst", "BN": "bench", "IR": None, "IL": None,
+}
 
 _BASE = "https://api.sleeper.app/v1"
 
@@ -44,6 +52,30 @@ def import_league(league_id: str) -> dict:
                 pass
 
     return scoring
+
+
+def import_roster(league_id: str) -> dict:
+    """Fetch roster slot counts and team count from a Sleeper league."""
+    r = requests.get(f"{_BASE}/league/{league_id}", timeout=10)
+    if r.status_code == 404:
+        raise ValueError(f"League '{league_id}' not found on Sleeper.")
+    r.raise_for_status()
+    data = r.json()
+
+    roster = DEFAULT_ROSTER.copy()
+    roster["num_teams"] = data.get("total_rosters", 12)
+
+    counts = {}
+    for pos in data.get("roster_positions", []):
+        key = _POS_MAP.get(pos)
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+
+    for k in ["qb", "rb", "wr", "te", "flex", "k", "dst", "bench"]:
+        if k in counts:
+            roster[k] = counts[k]
+
+    return roster
 
 
 def get_league_name(league_id: str) -> str:

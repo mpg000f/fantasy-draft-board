@@ -1,5 +1,12 @@
 import requests
 from scoring import DEFAULT_SCORING
+from auction import DEFAULT_ROSTER
+
+# ESPN lineup slot ID → roster key
+_ESPN_SLOT_MAP = {
+    0: "qb", 2: "rb", 4: "wr", 6: "te",
+    23: "flex", 16: "k", 24: "dst", 20: "bench",
+}
 
 _BASE = "https://fantasy.espn.com/apis/v3/games/ffl"
 
@@ -63,6 +70,36 @@ def import_league(league_id: str, year: int = 2025,
                 pass
 
     return scoring
+
+
+def import_roster(league_id: str, year: int = 2025,
+                  espn_s2: str = "", swid: str = "") -> dict:
+    """Fetch roster slot counts and team count from an ESPN league."""
+    url = f"{_BASE}/seasons/{year}/segments/0/leagues/{league_id}"
+    cookies = {}
+    if espn_s2:
+        cookies["espn_s2"] = espn_s2
+    if swid:
+        cookies["SWID"] = swid
+
+    r = requests.get(url, params={"view": "mSettings"}, cookies=cookies, timeout=10)
+    if r.status_code == 401:
+        raise ValueError("Private league — provide your espn_s2 and SWID cookies.")
+    r.raise_for_status()
+
+    data = r.json()
+    settings = data.get("settings", {})
+
+    roster = DEFAULT_ROSTER.copy()
+    roster["num_teams"] = settings.get("size", 12)
+
+    for slot in settings.get("rosterSettings", {}).get("lineupSlotCounts", {}):
+        key = _ESPN_SLOT_MAP.get(int(slot))
+        count = settings["rosterSettings"]["lineupSlotCounts"][slot]
+        if key and count:
+            roster[key] = count
+
+    return roster
 
 
 def get_league_name(league_id: str, year: int = 2025,

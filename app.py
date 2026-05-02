@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from scraper import fetch_projections, fetch_adp
 from scoring import DEFAULT_SCORING, PRESETS, calculate_fpts
+from auction import DEFAULT_ROSTER, calculate_auction_values
 from league import sleeper, espn, yahoo
 
 st.set_page_config(page_title="Fantasy Draft Board", layout="wide")
@@ -18,6 +19,8 @@ if "scoring" not in st.session_state:
     st.session_state.scoring = PRESETS["Half PPR"].copy()
 if "preset" not in st.session_state:
     st.session_state.preset = "Half PPR"
+if "roster" not in st.session_state:
+    st.session_state.roster = DEFAULT_ROSTER.copy()
 if "import_status" not in st.session_state:
     st.session_state.import_status = None
 if "yahoo_token" not in st.session_state:
@@ -75,9 +78,12 @@ with st.sidebar:
         if st.button("Import from Sleeper", use_container_width=True):
             with st.spinner("Fetching league settings..."):
                 try:
-                    scoring = sleeper.import_league(league_id.strip())
-                    name = sleeper.get_league_name(league_id.strip())
+                    lid = league_id.strip()
+                    scoring = sleeper.import_league(lid)
+                    roster = sleeper.import_roster(lid)
+                    name = sleeper.get_league_name(lid)
                     st.session_state.scoring = scoring
+                    st.session_state.roster = {**roster, "budget": st.session_state.roster["budget"]}
                     st.session_state.preset = "Custom"
                     st.session_state.import_status = ("success", f"Loaded: **{name}**")
                 except Exception as e:
@@ -94,15 +100,13 @@ with st.sidebar:
         if st.button("Import from ESPN", use_container_width=True):
             with st.spinner("Fetching league settings..."):
                 try:
-                    scoring = espn.import_league(
-                        league_id.strip(), int(year),
-                        espn_s2=espn_s2.strip(), swid=swid.strip()
-                    )
-                    name = espn.get_league_name(
-                        league_id.strip(), int(year),
-                        espn_s2=espn_s2.strip(), swid=swid.strip()
-                    )
+                    lid, yr = league_id.strip(), int(year)
+                    kw = dict(espn_s2=espn_s2.strip(), swid=swid.strip())
+                    scoring = espn.import_league(lid, yr, **kw)
+                    roster = espn.import_roster(lid, yr, **kw)
+                    name = espn.get_league_name(lid, yr, **kw)
                     st.session_state.scoring = scoring
+                    st.session_state.roster = {**roster, "budget": st.session_state.roster["budget"]}
                     st.session_state.preset = "Custom"
                     st.session_state.import_status = ("success", f"Loaded: **{name}**")
                 except Exception as e:
@@ -124,13 +128,12 @@ with st.sidebar:
             if st.button("Import from Yahoo", use_container_width=True):
                 with st.spinner("Fetching league settings..."):
                     try:
-                        scoring = yahoo.import_league(
-                            league_id.strip(), st.session_state.yahoo_token
-                        )
-                        name = yahoo.get_league_name(
-                            league_id.strip(), st.session_state.yahoo_token
-                        )
+                        lid, tok = league_id.strip(), st.session_state.yahoo_token
+                        scoring = yahoo.import_league(lid, tok)
+                        roster = yahoo.import_roster(lid, tok)
+                        name = yahoo.get_league_name(lid, tok)
                         st.session_state.scoring = scoring
+                        st.session_state.roster = {**roster, "budget": st.session_state.roster["budget"]}
                         st.session_state.preset = "Custom"
                         st.session_state.import_status = ("success", f"Loaded: **{name}**")
                     except Exception as e:
@@ -208,6 +211,27 @@ with st.sidebar:
         s["rec_2pt"] = st.number_input("2PT conversion (rec)", value=float(s["rec_2pt"]),
             step=0.5, key="rec_2pt")
 
+    st.divider()
+
+    # Auction settings
+    st.subheader("Auction Settings")
+    r = st.session_state.roster
+    r["budget"] = st.number_input("Budget per team ($)", value=int(r["budget"]),
+        min_value=50, step=10, key="budget")
+
+    with st.expander("Roster slots", expanded=False):
+        st.caption("Auto-filled from league import. Adjust if needed.")
+        r["num_teams"] = st.number_input("Teams", value=int(r["num_teams"]), min_value=2, step=1, key="num_teams")
+        r["qb"]    = st.number_input("QB",    value=int(r["qb"]),    min_value=0, step=1, key="r_qb")
+        r["rb"]    = st.number_input("RB",    value=int(r["rb"]),    min_value=0, step=1, key="r_rb")
+        r["wr"]    = st.number_input("WR",    value=int(r["wr"]),    min_value=0, step=1, key="r_wr")
+        r["te"]    = st.number_input("TE",    value=int(r["te"]),    min_value=0, step=1, key="r_te")
+        r["flex"]  = st.number_input("FLEX",  value=int(r["flex"]),  min_value=0, step=1, key="r_flex",
+            help="RB/WR/TE eligible")
+        r["k"]     = st.number_input("K",     value=int(r["k"]),     min_value=0, step=1, key="r_k")
+        r["dst"]   = st.number_input("DST",   value=int(r["dst"]),   min_value=0, step=1, key="r_dst")
+        r["bench"] = st.number_input("Bench", value=int(r["bench"]), min_value=0, step=1, key="r_bench")
+
     if st.button("Refresh Projection Data", use_container_width=True):
         fetch_projections.clear()
         fetch_adp.clear()
@@ -232,8 +256,9 @@ if raw_df.empty:
     st.error("Could not load projections from FantasyPros. Try refreshing.")
     st.stop()
 
-# Apply scoring and merge ADP
+# Apply scoring, auction values, merge ADP
 df = calculate_fpts(raw_df, st.session_state.scoring)
+df = calculate_auction_values(df, st.session_state.roster)
 
 if not adp_df.empty:
     df = df.merge(adp_df, on="player", how="left")
@@ -248,16 +273,16 @@ df.insert(0, "rank", df.index + 1)
 df["pos_rank"] = df.groupby("position").cumcount() + 1
 df["pos_rank_label"] = df["position"] + df["pos_rank"].astype(str)
 
-# Value column (lower ADP rank = picked earlier = more valuable relative to FPTS rank)
+# Value vs ADP
 df["value"] = (df["adp"] - df["rank"]).round(1)
 
 
 def _fmt_df(subset: pd.DataFrame, show_stats: bool = False) -> pd.DataFrame:
-    cols = ["rank", "player", "team", "position", "pos_rank_label", "custom_fpts"]
+    cols = ["rank", "player", "team", "position", "pos_rank_label", "custom_fpts", "auction_value"]
     rename = {
         "rank": "Rank", "player": "Player", "team": "Team",
         "position": "Pos", "pos_rank_label": "Pos Rank",
-        "custom_fpts": "Proj FPTS",
+        "custom_fpts": "Proj FPTS", "auction_value": "$Value",
     }
     if "adp" in subset.columns and subset["adp"].notna().any():
         cols += ["adp", "value"]
@@ -300,9 +325,14 @@ with tab_all:
     display = _fmt_df(df)
     _export_buttons(display, "all")
     st.dataframe(display, use_container_width=True, hide_index=True,
-                 column_config={"Value vs ADP": st.column_config.NumberColumn(
-                     help="Positive = ranked higher by FPTS than ADP suggests (value pick)"
-                 )})
+                 column_config={
+                     "$Value": st.column_config.NumberColumn(
+                         help=f"Auction value based on ${r['budget']} budget, {r['num_teams']} teams"
+                     ),
+                     "Value vs ADP": st.column_config.NumberColumn(
+                         help="Positive = ranked higher by FPTS than ADP suggests (value pick)"
+                     ),
+                 })
 
 for tab, pos in [
     (tab_qb, "QB"), (tab_rb, "RB"), (tab_wr, "WR"),
@@ -322,5 +352,7 @@ st.caption(
     + (f"TE: {te_total} PPR · " if s['te_rec_bonus'] else "")
     + f"{s['pass_td']}pt pass TD · {s['rush_td']}pt rush/rec TD · "
     + f"1 pt per {int(s['pass_yds_per_pt'])} pass yds / {int(s['rush_yds_per_pt'])} rush yds / {int(s['rec_yds_per_pt'])} rec yds · "
-    + f"{s['pass_int']} INT · {s['fumble_lost']} fumble"
+    + f"{s['pass_int']} INT · {s['fumble_lost']} fumble · "
+    + f"Auction: ${r['budget']}/team · {r['num_teams']} teams · "
+    + f"{r['qb']}QB {r['rb']}RB {r['wr']}WR {r['te']}TE {r['flex']}FLEX {r['k']}K {r['dst']}DST {r['bench']}BN"
 )
