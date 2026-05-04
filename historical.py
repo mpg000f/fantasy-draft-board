@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 
 YEARS = [2020, 2021, 2022, 2023, 2024]
-WEIGHTS = {2020: 0.10, 2021: 0.15, 2022: 0.20, 2023: 0.25, 2024: 0.30}
+WEIGHTS = {2020: 0.15, 2021: 0.15, 2022: 0.20, 2023: 0.25, 2024: 0.25}
 
 _STAT_COLS = [
     "passing_yds", "passing_tds", "passing_ints",
