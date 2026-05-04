@@ -130,6 +130,55 @@ def fetch_projections(week: str = "draft") -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def fetch_consensus_rankings() -> pd.DataFrame:
+    """Fetch FantasyPros expert consensus rankings by position (preseason).
+
+    Returns DataFrame with player, team, position, pos_rank columns.
+    FantasyPros renders rankings via a JSON blob in the page script (ecrData).
+    """
+    import re, json
+
+    frames = []
+    for pos in ["qb", "rb", "wr", "te", "k", "dst"]:
+        url = f"https://www.fantasypros.com/nfl/rankings/{pos}.php?week=draft"
+        try:
+            r = requests.get(url, headers=_HEADERS, timeout=15)
+            r.raise_for_status()
+            soup = BeautifulSoup(r.content, "html.parser")
+            ecr_match = None
+            for script in soup.find_all("script"):
+                txt = script.string or ""
+                if "ecrData" in txt:
+                    ecr_match = re.search(r"var ecrData\s*=\s*(\{.*?\});", txt, re.DOTALL)
+                    break
+            if not ecr_match:
+                continue
+            data = json.loads(ecr_match.group(1))
+            players = data.get("players", [])
+            rows = []
+            for p in players:
+                # pos_rank is like "RB3" — extract the number
+                pr_raw = str(p.get("pos_rank", ""))
+                pr_num = int(re.sub(r"[^0-9]", "", pr_raw)) if re.search(r"\d", pr_raw) else None
+                if pr_num is None:
+                    continue
+                rows.append({
+                    "player": p.get("player_name", ""),
+                    "team": p.get("player_team_id", ""),
+                    "position": p.get("player_position_id", pos.upper()),
+                    "pos_rank": pr_num,
+                })
+            if rows:
+                frames.append(pd.DataFrame(rows))
+        except Exception as e:
+            st.warning(f"Could not fetch {pos.upper()} consensus rankings: {e}")
+
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_adp(scoring_label: str = "Half PPR") -> pd.DataFrame:
     """Fetch FantasyPros consensus ADP matching the scoring format."""
     url = _ADP_URLS.get(scoring_label, _ADP_URLS["Half PPR"])

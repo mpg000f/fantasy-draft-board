@@ -6,9 +6,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from scraper import fetch_projections, fetch_adp
+from scraper import fetch_projections, fetch_adp, fetch_consensus_rankings
 from scoring import DEFAULT_SCORING, PRESETS, calculate_fpts
 from auction import DEFAULT_ROSTER, calculate_auction_values
+from historical import fetch_rank_curves, build_historical_projections
 from league import sleeper, espn, yahoo
 
 st.set_page_config(page_title="Fantasy Draft Board", layout="wide")
@@ -255,9 +256,20 @@ with st.sidebar:
         r["dst"]   = st.number_input("DST",   value=int(r["dst"]),   min_value=0, step=1, key="r_dst")
         r["bench"] = st.number_input("Bench", value=int(r["bench"]), min_value=0, step=1, key="r_bench")
 
+    st.divider()
+
+    st.subheader("Projection Source")
+    proj_source = st.radio(
+        "Source",
+        ["FantasyPros Projections", "Historical (5yr weighted)"],
+        help="FantasyPros uses expert stat projections. Historical maps the last 5 years of positional rank averages onto current expert consensus rankings.",
+    )
+
     if st.button("Refresh Projection Data", use_container_width=True):
         fetch_projections.clear()
         fetch_adp.clear()
+        fetch_consensus_rankings.clear()
+        fetch_rank_curves.clear()
         st.rerun()
 
 
@@ -272,11 +284,24 @@ scoring_label = (
 )
 
 with st.spinner("Loading projections..."):
-    raw_df = fetch_projections(st.session_state.week)
+    fp_df = fetch_projections(st.session_state.week)
     adp_df = fetch_adp(scoring_label) if st.session_state.week == "draft" else pd.DataFrame()
 
+    if proj_source == "Historical (5yr weighted)" and st.session_state.week == "draft":
+        consensus_df = fetch_consensus_rankings()
+        curves = fetch_rank_curves()
+        if consensus_df.empty or not curves:
+            st.warning("Could not load historical data — falling back to FantasyPros projections.")
+            raw_df = fp_df
+        else:
+            raw_df = build_historical_projections(consensus_df, curves, fp_df)
+    else:
+        if proj_source == "Historical (5yr weighted)":
+            st.info("Historical projections are only available for full-season (draft) mode. Showing FantasyPros week projections.")
+        raw_df = fp_df
+
 if raw_df.empty:
-    st.error("Could not load projections from FantasyPros. Try refreshing.")
+    st.error("Could not load projections. Try refreshing.")
     st.stop()
 
 # Apply scoring, auction values, merge ADP
