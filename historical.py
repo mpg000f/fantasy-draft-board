@@ -37,11 +37,31 @@ def fetch_rank_curves() -> dict:
     except ImportError:
         return {}
 
-    stats = nfl.import_seasonal_data(YEARS, s_type="REG")
+    # Load each year individually so a missing year doesn't kill the whole request
+    stat_frames, roster_frames = [], []
+    available_years = []
+    for yr in YEARS:
+        try:
+            stat_frames.append(nfl.import_seasonal_data([yr], s_type="REG"))
+            roster_frames.append(
+                nfl.import_seasonal_rosters([yr])[["player_id", "player_name", "position", "season"]]
+            )
+            available_years.append(yr)
+        except Exception:
+            pass
 
-    # nfl_data_py seasonal data has no position/name — join from rosters
-    rosters = nfl.import_seasonal_rosters(YEARS)[["player_id", "player_name", "position", "season"]].drop_duplicates()
+    if not stat_frames:
+        return {}
+
+    stats = pd.concat(stat_frames, ignore_index=True)
+    rosters = pd.concat(roster_frames, ignore_index=True).drop_duplicates()
     raw = stats.merge(rosters, on=["player_id", "season"], how="left")
+
+    # Restrict weights to years we actually got data for
+    active_weights = {yr: WEIGHTS[yr] for yr in available_years}
+    total_w = sum(active_weights.values())
+    active_weights = {yr: w / total_w for yr, w in active_weights.items()}
+    raw["weight"] = raw["season"].map(active_weights)
 
     col_map = {
         "passing_yards": "passing_yds",
@@ -74,7 +94,6 @@ def fetch_rank_curves() -> dict:
         raw[col] = raw[col] / games * 17
 
     raw["rank_pts"] = raw.apply(_rank_pts, axis=1)
-    raw["weight"] = raw["season"].map(WEIGHTS)
     raw["pos_rank"] = (
         raw.groupby(["season", "position"])["rank_pts"]
         .rank(ascending=False, method="first")
