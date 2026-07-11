@@ -10,6 +10,9 @@ from scraper import fetch_projections, fetch_adp, fetch_consensus_rankings
 from scoring import DEFAULT_SCORING, PRESETS, calculate_fpts
 from auction import DEFAULT_ROSTER, calculate_auction_values
 from historical import fetch_rank_curves, build_historical_projections
+from espn_proj import fetch_projections_espn
+from sleeper_proj import fetch_projections_sleeper
+from blend import fetch_projections_blended
 from league import sleeper, espn, yahoo
 
 st.set_page_config(page_title="Fantasy Draft Board", layout="wide")
@@ -261,11 +264,19 @@ with st.sidebar:
     st.subheader("Projection Source")
     proj_source = st.radio(
         "Source",
-        ["FantasyPros Projections", "Historical (5yr weighted)"],
-        help="FantasyPros uses expert stat projections. Historical maps the last 5 years of positional rank averages onto current expert consensus rankings.",
+        ["Blend (ESPN + Sleeper)", "ESPN Projections", "Sleeper Projections",
+         "FantasyPros Projections", "Historical (5yr weighted)"],
+        help="Blend: averages ESPN + Sleeper raw stats per player (recommended — "
+             "cancels single-source bias like ESPN's high RB/WR numbers). "
+             "ESPN / Sleeper: either alone. "
+             "FantasyPros: expert stats (loads can be truncated/flaky). "
+             "Historical: 5-year positional-rank averages onto consensus ranks.",
     )
 
     if st.button("Refresh Projection Data", use_container_width=True):
+        fetch_projections_blended.clear()
+        fetch_projections_espn.clear()
+        fetch_projections_sleeper.clear()
         fetch_projections.clear()
         fetch_adp.clear()
         fetch_consensus_rankings.clear()
@@ -284,10 +295,26 @@ scoring_label = (
 )
 
 with st.spinner("Loading projections..."):
-    fp_df = fetch_projections(st.session_state.week)
-    adp_df = fetch_adp(scoring_label) if st.session_state.week == "draft" else pd.DataFrame()
+    is_draft = st.session_state.week == "draft"
+    adp_df = fetch_adp(scoring_label) if is_draft else pd.DataFrame()
 
-    if proj_source == "Historical (5yr weighted)" and st.session_state.week == "draft":
+    if proj_source == "Blend (ESPN + Sleeper)" and is_draft:
+        raw_df = fetch_projections_blended()
+        if raw_df.empty:
+            st.warning("Blend unavailable — falling back to FantasyPros.")
+            raw_df = fetch_projections(st.session_state.week)
+    elif proj_source == "ESPN Projections" and is_draft:
+        raw_df = fetch_projections_espn()
+        if raw_df.empty:
+            st.warning("ESPN projections unavailable — falling back to FantasyPros.")
+            raw_df = fetch_projections(st.session_state.week)
+    elif proj_source == "Sleeper Projections" and is_draft:
+        raw_df = fetch_projections_sleeper()
+        if raw_df.empty:
+            st.warning("Sleeper projections unavailable — falling back to FantasyPros.")
+            raw_df = fetch_projections(st.session_state.week)
+    elif proj_source == "Historical (5yr weighted)" and is_draft:
+        fp_df = fetch_projections(st.session_state.week)
         consensus_df = fetch_consensus_rankings()
         curves = fetch_rank_curves()
         if consensus_df.empty or not curves:
@@ -296,9 +323,9 @@ with st.spinner("Loading projections..."):
         else:
             raw_df = build_historical_projections(consensus_df, curves, fp_df)
     else:
-        if proj_source == "Historical (5yr weighted)":
-            st.info("Historical projections are only available for full-season (draft) mode. Showing FantasyPros week projections.")
-        raw_df = fp_df
+        if not is_draft and proj_source != "FantasyPros Projections":
+            st.info("Only FantasyPros has weekly projections. Showing FantasyPros week projections.")
+        raw_df = fetch_projections(st.session_state.week)
 
 if raw_df.empty:
     st.error("Could not load projections. Try refreshing.")

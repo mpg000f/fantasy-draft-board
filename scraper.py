@@ -1,3 +1,4 @@
+import time
 import requests
 import pandas as pd
 from io import StringIO
@@ -5,8 +6,16 @@ from bs4 import BeautifulSoup
 import streamlit as st
 
 _HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    # FantasyPros' CDN sometimes serves a stale, truncated 10-row stub; bust it.
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
 }
+
+# Minimum plausible player counts per position. FantasyPros intermittently
+# returns a truncated 10-row table (a CDN cache stub), so we refetch until a
+# response clears these floors.
+_MIN_ROWS = {"qb": 30, "rb": 50, "wr": 50, "te": 25, "k": 20, "dst": 25}
 
 _NFL_TEAMS = {
     "ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE",
@@ -86,32 +95,71 @@ def _standardize_columns(df: pd.DataFrame, pos: str) -> pd.DataFrame:
     return df
 
 
-def _fetch_position(pos: str, week: str) -> pd.DataFrame | None:
-    url = f"https://www.fantasypros.com/nfl/projections/{pos}.php?scoring=PPR&week={week}"
-    try:
-        r = requests.get(url, headers=_HEADERS, timeout=15)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.content, "html.parser")
-        table = soup.find("table", id="data") or soup.find("table")
-        if table is None:
-            return None
-        df = pd.read_html(StringIO(str(table)))[0]
-        df = _flatten_columns(df)
+def _projection_urls(pos: str, week: str) -> list[str]:
+    """Candidate URLs for a position's projections, best-odds first.
 
-        # Identify and rename player column
-        player_col = df.columns[0]
-        df = df.rename(columns={player_col: "player_raw"})
-        df[["player", "team"]] = pd.DataFrame(
-            df["player_raw"].map(_parse_name_team).tolist(), index=df.index
-        )
-        df["position"] = pos.upper()
-        df = _standardize_columns(df, pos)
+    For the draft (full-season) board, FantasyPros keeps two independently
+    cached responses per position — the plain page and the param'd page — and
+    each flips between full data and a 10-row stub on its own TTL. DST's full
+    field only lives in the export view. We try each and keep the fullest.
+    """
+    base = f"https://www.fantasypros.com/nfl/projections/{pos}.php"
+    if week != "draft":
+        return [f"{base}?scoring=PPR&week={week}"]
+    if pos == "dst":
+        return [f"{base}?scoring=PPR&week=draft&export=xls", base]
+    return [base, f"{base}?scoring=PPR&week=draft"]
 
-        keep = ["player", "team", "position"] + _STAT_COLS
-        return df[[c for c in keep if c in df.columns]]
-    except Exception as e:
-        st.warning(f"Could not fetch {pos.upper()} projections: {e}")
+
+def _parse_projection_table(content: bytes, pos: str) -> pd.DataFrame | None:
+    soup = BeautifulSoup(content, "html.parser")
+    table = soup.find("table", id="data") or soup.find("table")
+    if table is None:
         return None
+    df = pd.read_html(StringIO(str(table)))[0]
+    df = _flatten_columns(df)
+
+    # Identify and rename player column
+    player_col = df.columns[0]
+    df = df.rename(columns={player_col: "player_raw"})
+    df[["player", "team"]] = pd.DataFrame(
+        df["player_raw"].map(_parse_name_team).tolist(), index=df.index
+    )
+    df["position"] = pos.upper()
+    df = _standardize_columns(df, pos)
+
+    keep = ["player", "team", "position"] + _STAT_COLS
+    return df[[c for c in keep if c in df.columns]]
+
+
+def _fetch_position(pos: str, week: str, attempts: int = 4) -> pd.DataFrame | None:
+    """Fetch one position, retrying across URL variants until the response
+    clears the minimum-rows floor (i.e. isn't a truncated CDN stub)."""
+    pos = pos.lower()
+    urls = _projection_urls(pos, week)
+    min_rows = _MIN_ROWS.get(pos, 10) if week == "draft" else 1
+    best = None
+
+    for i in range(attempts):
+        url = urls[i % len(urls)]
+        try:
+            # Fresh session each attempt so we don't ride a throttled connection
+            r = requests.Session().get(url, headers=_HEADERS, timeout=20)
+            r.raise_for_status()
+            df = _parse_projection_table(r.content, pos)
+            if df is not None and (best is None or len(df) > len(best)):
+                best = df
+            if best is not None and len(best) >= min_rows:
+                return best
+        except Exception:
+            pass
+        time.sleep(1.0)
+
+    if best is None:
+        st.warning(f"Could not fetch {pos.upper()} projections.")
+    elif week == "draft" and len(best) < min_rows:
+        st.warning(f"{pos.upper()} projections look incomplete ({len(best)} players) — try Refresh.")
+    return best
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
